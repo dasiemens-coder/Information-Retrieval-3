@@ -1,8 +1,12 @@
 # CHANGES MADE: 
-# 1. Added EPS to avoid division by zero
+# 1. Added EPS during alpha calculation to avoid division by zero
 # 2. Deactivate prints 
 # 3. Add get_coef function to return the coefficients of the model
-# 4. Add a max alpha
+# 4. Explicit regularization using lambda param to enforce feature diversity during model fit -> Prohibits AdaRank to only select most important feature
+# 5. Radonmize Weak Ranker Iteration order during fit to avoid feature being overmephazised due to order if similar predition power 
+
+#Copyright (c) 2017 Ruey-Cheng Chen
+#Copied from repository git@github.com:rueycheng/AdaRank.git
 
 #Copyright (c) 2017 Ruey-Cheng Chen
 #Copied from repository git@github.com:rueycheng/AdaRank.git
@@ -15,13 +19,14 @@ import math
 import numpy as np
 import sklearn
 import sys
+import random
 
 from sklearn.utils import check_X_y
 
 from metrics import NDCGScorer
 
 
-class AdaRank(sklearn.base.BaseEstimator):
+class AdaRankv2(sklearn.base.BaseEstimator):
     """AdaRank algorithm"""
 
     def __init__(self, max_iter=500, tol=0.0001, estop=1, verbose=False, scorer=None):
@@ -68,36 +73,49 @@ class AdaRank(sklearn.base.BaseEstimator):
 
             best_weighted_average = -np.inf
             best_weak_ranker = None
-            for fid, score in enumerate(weak_ranker_score):
-                if fid in used_fids:
-                    continue
-                weighted_average = np.dot(weights, score)
+            # Create a list of all feature indices
+            candidate_fids = list(range(len(weak_ranker_score)))
+            # Randomize the order of candidates
+            random.shuffle(candidate_fids)
+
+            for fid in candidate_fids:
+                score = weak_ranker_score[fid]
+                # Apply a penalty if this feature was used before
+                penalty = 0.5 if fid in used_fids else 1.0
+                weighted_average = penalty * np.dot(weights, score)
                 if weighted_average > best_weighted_average:
                     best_weak_ranker = {'fid': fid, 'score': score}
                     best_weighted_average = weighted_average
 
-            # stop when all the weaker rankers are out
+            # stop when no candidate is found
             if best_weak_ranker is None:
                 break
 
             #CHANGED CODE: 
             # Add small epsilon to avoid division by zero
             EPS = 1e-10
+            #Add lambda to enforce regulatrization during on the feature selection
+            lambda_reg = 0.1  # hyperparam was manually tuned
+
             h = best_weak_ranker
-            alpha_calulcated = 0.5 * math.log(
-                np.dot(weights, 1 + h['score']) /
-                max(np.dot(weights, 1 - h['score']), EPS)
-            )
-            max_alpha = 10
-            h['alpha'] = min(alpha_calulcated, max_alpha)
+            # Compute numerator and denominator with regularization added
+            num_val = np.dot(weights, 1 + h['score']) + lambda_reg
+            den_val = np.dot(weights, 1 - h['score']) + lambda_reg
+            # Ensure neither term is below EPS
+            num_val = max(num_val, EPS)
+            den_val = max(den_val, EPS)
+            alpha_calculated = 0.5 * math.log(num_val / den_val)
+            max_alpha = 5
+            h['alpha'] = min(alpha_calculated, max_alpha)
+            
             weak_rankers.append(h)
 
             # update the ranker
             coef[h['fid']] += h['alpha']
 
-            # if len(used_fids) > 5:
-            #     used_fids.pop(0)
-            # used_fids.append(h['fid'])
+            if len(used_fids) > 5:
+                used_fids.pop(0)
+            used_fids.append(h['fid'])
 
             # score both training and validation data
             score_train = self.scorer(y, np.dot(X, coef), qid)
@@ -107,11 +125,11 @@ class AdaRank(sklearn.base.BaseEstimator):
             if X_valid is not X:
                 perf_valid = self.scorer(y_valid, np.dot(X_valid, coef), qid_valid).mean()
 
-            #if self.verbose:
-             #   print('{n_iter}\t{alpha}\t{fid}\t{score}\ttrain {train:.4f}\tvalid {valid:.4f}'.
-              #        format(n_iter=self.n_iter, alpha=h['alpha'], fid=h['fid'],
-               #              score=h['score'][:5], train=perf_train, valid=perf_valid),
-                #      file=sys.stderr)
+            if self.verbose:
+                print('{n_iter}\t{alpha}\t{fid}\t{score}\ttrain {train:.4f}\tvalid {valid:.4f}'.
+                      format(n_iter=self.n_iter, alpha=h['alpha'], fid=h['fid'],
+                             score=h['score'][:5], train=perf_train, valid=perf_valid),
+                      file=sys.stderr)
 
             # update the best validation scores
             if perf_valid > best_perf_valid + self.tol:
