@@ -81,8 +81,9 @@ class AdaRankv2(sklearn.base.BaseEstimator):
             for fid in candidate_fids:
                 score = weak_ranker_score[fid]
                 # Apply a penalty if this feature was used before
-                penalty = 0.5 if fid in used_fids else 1.0
-                weighted_average = penalty * np.dot(weights, score)
+                #penalty = 0.5 if fid in used_fids else 1.0
+                #weighted_average = penalty * np.dot(weights, score)
+                weighted_average = np.dot(weights, score)
                 if weighted_average > best_weighted_average:
                     best_weak_ranker = {'fid': fid, 'score': score}
                     best_weighted_average = weighted_average
@@ -95,7 +96,7 @@ class AdaRankv2(sklearn.base.BaseEstimator):
             # Add small epsilon to avoid division by zero
             EPS = 1e-10
             #Add lambda to enforce regulatrization during on the feature selection
-            lambda_reg = 0.1  # hyperparam was manually tuned
+            lambda_reg = 0.01 # hyperparam was manually tuned
 
             h = best_weak_ranker
             # Compute numerator and denominator with regularization added
@@ -105,7 +106,7 @@ class AdaRankv2(sklearn.base.BaseEstimator):
             num_val = max(num_val, EPS)
             den_val = max(den_val, EPS)
             alpha_calculated = 0.5 * math.log(num_val / den_val)
-            max_alpha = 5
+            max_alpha = 10
             h['alpha'] = min(alpha_calculated, max_alpha)
             
             weak_rankers.append(h)
