@@ -9,3 +9,10 @@ idxdata/y.npy
 loinc_ranks_query_moreterms_v2.xlsx
 ~$loinc_ranks_query_moreterms.xlsx
 loinc_ranks_query_moreterms_v2.xlsx
+Input/loinc_query_terms_testing.xlsx
+Input/loinc_query_terms_training.xlsx
+Input-test/loinc_query_terms_training.xlsx
+Input-test/loinc_query_terms_testing.xlsx
+validation_results_by_query.xlsx
+idxdata/indexed_dataset.csv
+Input-test/dummy
