@@ -7510,12 +7510,41 @@ a.anchor-link {
 </style>
 <!-- End of mermaid configuration --></head>
 <body class="jp-Notebook" data-jp-theme-light="true" data-jp-theme-name="JupyterLab Light">
-<main><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<main>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h1 id="LoincRanker-Notebook-Overview">LoincRanker Notebook Overview<a class="anchor-link" href="#LoincRanker-Notebook-Overview">¶</a></h1><p>This notebook implements a learning-to-rank pipeline for LOINC data using an AdaRank model.  It covers:</p>
+<ul>
+<li>Data merging from multi-sheet Excel files,</li>
+<li>Diverse feature extraction techniques (lexical, semantic, and numerical),</li>
+<li>Construction of a combined sparse feature matrix,</li>
+<li>Query-aware model training and evaluation,</li>
+<li>And finally, analysis of model results.</li>
+</ul>
+<p>The underlying AdaRank model is implemented using the repository git@github.com:rueycheng/AdaRank.git. The AdaRank algorithm was modified to include extra regularization mechnisms.</p>
+<p>Example predictions can be found in the output of the cells and in the folder Results/.</p>
+<hr/>
+<h2 id="Content-of-notebook">Content of notebook<a class="anchor-link" href="#Content-of-notebook">¶</a></h2><ol>
+<li>Data Loading</li>
+<li>Feature Extraction, Data Merging</li>
+<li>Indexing</li>
+<li>AdaRank Training</li>
+<li>AdaRank Evaluation</li>
+<li>Example Retrivals</li>
+</ol>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [82]:</div>
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
 <div class="highlight hl-ipython3"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
@@ -7526,16 +7555,17 @@ a.anchor-link {
 <span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.model_selection</span><span class="w"> </span><span class="kn">import</span> <span class="n">GroupShuffleSplit</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.metrics.pairwise</span><span class="w"> </span><span class="kn">import</span> <span class="n">cosine_similarity</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.model_selection</span><span class="w"> </span><span class="kn">import</span> <span class="n">GroupKFold</span>
-
-
-
-<span class="n">file_path</span> <span class="o">=</span> <span class="s1">'loinc_ranks_query_moreterms.xlsx'</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">SentenceTransformer</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">adarankv2</span><span class="w"> </span><span class="kn">import</span> <span class="n">AdaRankv2</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">metrics</span><span class="w"> </span><span class="kn">import</span> <span class="n">NDCGScorer</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.preprocessing</span><span class="w"> </span><span class="kn">import</span> <span class="n">LabelEncoder</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">scipy.sparse</span><span class="w"> </span><span class="kn">import</span> <span class="n">save_npz</span><span class="p">,</span> <span class="n">load_npz</span>
 </pre></div>
 </div>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7543,8 +7573,106 @@ a.anchor-link {
 <div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
-<div class="highlight hl-ipython3"><pre><span></span><span class="c1">#Read the</span>
-<span class="n">xls</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">ExcelFile</span><span class="p">(</span><span class="n">file_path</span><span class="p">)</span>
+<div class="highlight hl-ipython3"><pre><span></span><span class="sd">""" val_file_path = 'Input-test/loinc_query_terms_testing.xlsx'</span>
+<span class="sd">train_file_path = 'Input-test/loinc_query_terms_training.xlsx' """</span>
+<span class="n">val_file_path</span> <span class="o">=</span> <span class="s1">'Input/loinc_query_terms_testing.xlsx'</span>
+<span class="n">train_file_path</span> <span class="o">=</span> <span class="s1">'Input/loinc_query_terms_training.xlsx'</span>
+
+<span class="c1"># Load pretrained model vector embedding model</span>
+<span class="c1"># We are using a medical specific model from huggingface. https://huggingface.co/ls-da3m0ns/bge_large_medical 'ls-da3m0ns/bge_large_medical'</span>
+<span class="c1"># To improve performance, model can be switched to a more general &amp; lightwight model (replace with "all-MiniLM-L6-v2")</span>
+
+<span class="n">embedder</span> <span class="o">=</span> <span class="n">SentenceTransformer</span><span class="p">(</span><span class="s1">'ls-da3m0ns/bge_large_medical'</span><span class="p">)</span>
+<span class="c1">#embedder = SentenceTransformer('all-MiniLM-L6-v2') # lightweight model</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h3 id="Define-function-for-semantic-similarity-computation">Define function for semantic similarity computation<a class="anchor-link" href="#Define-function-for-semantic-similarity-computation">¶</a></h3><p>We use a pretrained embedding model for semantic similarity features.</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [59]:</div>
+<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="cm-editor cm-s-jupyter">
+<div class="highlight hl-ipython3"><pre><span></span><span class="c1"># Function to safely calculate similarity between a query and a field</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">calculate_embedding_similarity</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">field</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">pd</span><span class="o">.</span><span class="n">isna</span><span class="p">(</span><span class="n">query</span><span class="p">)</span> <span class="ow">or</span> <span class="n">pd</span><span class="o">.</span><span class="n">isna</span><span class="p">(</span><span class="n">field</span><span class="p">):</span>
+        <span class="k">return</span> <span class="mi">0</span>
+    <span class="n">query_embedding</span> <span class="o">=</span> <span class="n">embedder</span><span class="o">.</span><span class="n">encode</span><span class="p">([</span><span class="nb">str</span><span class="p">(</span><span class="n">query</span><span class="p">)])[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">field_embedding</span> <span class="o">=</span> <span class="n">embedder</span><span class="o">.</span><span class="n">encode</span><span class="p">([</span><span class="nb">str</span><span class="p">(</span><span class="n">field</span><span class="p">)])[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="k">return</span> <span class="n">cosine_similarity</span><span class="p">([</span><span class="n">query_embedding</span><span class="p">],</span> <span class="p">[</span><span class="n">field_embedding</span><span class="p">])[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h3 id="1.-Data-Loading,-Feature-Extraction,-Data-Merging">1. Data Loading, Feature Extraction, Data Merging<a class="anchor-link" href="#1.-Data-Loading,-Feature-Extraction,-Data-Merging">¶</a></h3><p>In this cell we select and create the weak rankers for AdaRank</p>
+<ul>
+<li><p><strong>Data Processing</strong></p>
+<ul>
+<li>Reads multiple sheets from an Excel file, adding each sheet name as a 'query' column</li>
+<li>Merges all sheet data into a single DataFrame for unified processing</li>
+</ul>
+</li>
+<li><p><strong>Feature Engineering: Lexical Similarity</strong></p>
+<ul>
+<li>Jaccard Similarity: Calculates word-level overlap between query and medical attributes property, system, component</li>
+<li>TF-IDF Cosine Similarity: Computes similarity between query and long_common_name using TF-IDF vectorization</li>
+</ul>
+</li>
+<li><p><strong>Feature Engineering: Semantic Similarity</strong></p>
+<ul>
+<li>Calculates embedding-based similarity between query and string fields.</li>
+</ul>
+</li>
+<li><p><strong>Numerical Feature Processing</strong></p>
+<ul>
+<li>Normalizes the 'rank' feature using StandardScaler</li>
+<li>Replaces zero values with values higher than maximum rank</li>
+</ul>
+</li>
+<li><p><strong>Feature Combination</strong></p>
+<ul>
+<li>Horizontally stacks all sparse feature matrices</li>
+<li>Prepares target variable from 'relevant' column</li>
+<li>Converts query strings to numeric IDs for compatibility with ranking algorithms</li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [60]:</div>
+<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="cm-editor cm-s-jupyter">
+<div class="highlight hl-ipython3"><pre><span></span><span class="c1">#Read the file and merge all sheets into one dataframe</span>
+<span class="n">xls</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">ExcelFile</span><span class="p">(</span><span class="n">train_file_path</span><span class="p">)</span>
 <span class="n">dataframes</span> <span class="o">=</span> <span class="p">[]</span>
 <span class="k">for</span> <span class="n">sheet_name</span> <span class="ow">in</span> <span class="n">xls</span><span class="o">.</span><span class="n">sheet_names</span><span class="p">:</span>
     <span class="n">temp_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_excel</span><span class="p">(</span><span class="n">xls</span><span class="p">,</span> <span class="n">sheet_name</span><span class="o">=</span><span class="n">sheet_name</span><span class="p">)</span>
@@ -7552,9 +7680,48 @@ a.anchor-link {
     <span class="n">dataframes</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">temp_df</span><span class="p">)</span>
 <span class="n">merged_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span><span class="n">dataframes</span><span class="p">,</span> <span class="n">ignore_index</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 
+
 <span class="c1"># ------------------------------</span>
-<span class="c1"># Compute cosine similarity using TF-IDF</span>
-<span class="c1"># We want to compute, for each row, the cosine similarity between the query and the long_common_name.</span>
+<span class="c1"># Compute jaccard similarity for property, system, and component</span>
+
+<span class="c1"># Define a function to compute the Jaccard similarity between two strings.</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">jaccard_similarity</span><span class="p">(</span><span class="n">str1</span><span class="p">,</span> <span class="n">str2</span><span class="p">):</span>
+    <span class="c1"># If either string is not a valid string, return 0.</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">str1</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">str2</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+        <span class="k">return</span> <span class="mf">0.0</span>
+    <span class="n">set1</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">str1</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">.</span><span class="n">split</span><span class="p">())</span>
+    <span class="n">set2</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">str2</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">.</span><span class="n">split</span><span class="p">())</span>
+    <span class="n">union</span> <span class="o">=</span> <span class="n">set1</span><span class="o">.</span><span class="n">union</span><span class="p">(</span><span class="n">set2</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">union</span><span class="p">:</span>
+        <span class="k">return</span> <span class="mf">0.0</span>
+    <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">set1</span><span class="o">.</span><span class="n">intersection</span><span class="p">(</span><span class="n">set2</span><span class="p">)))</span> <span class="o">/</span> <span class="nb">len</span><span class="p">(</span><span class="n">union</span><span class="p">)</span>
+
+<span class="c1"># Compute Jaccard similarity for each of the  columns, comparing the 'query' to each.</span>
+<span class="n">merged_df</span><span class="p">[</span><span class="s1">'system_jaccard'</span><span class="p">]</span> <span class="o">=</span> <span class="n">merged_df</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span>
+    <span class="k">lambda</span> <span class="n">row</span><span class="p">:</span> <span class="n">jaccard_similarity</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">'query'</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s1">'system'</span><span class="p">])</span> <span class="k">if</span> <span class="n">pd</span><span class="o">.</span><span class="n">notnull</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">'system'</span><span class="p">])</span> <span class="k">else</span> <span class="mf">0.0</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">merged_df</span><span class="p">[</span><span class="s1">'component_jaccard'</span><span class="p">]</span> <span class="o">=</span> <span class="n">merged_df</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span>
+    <span class="k">lambda</span> <span class="n">row</span><span class="p">:</span> <span class="n">jaccard_similarity</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">'query'</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s1">'component'</span><span class="p">])</span> <span class="k">if</span> <span class="n">pd</span><span class="o">.</span><span class="n">notnull</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">'component'</span><span class="p">])</span> <span class="k">else</span> <span class="mf">0.0</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">merged_df</span><span class="p">[</span><span class="s1">'property_jaccard'</span><span class="p">]</span> <span class="o">=</span> <span class="n">merged_df</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span>
+    <span class="k">lambda</span> <span class="n">row</span><span class="p">:</span> <span class="n">jaccard_similarity</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">'query'</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s1">'property'</span><span class="p">])</span> <span class="k">if</span> <span class="n">pd</span><span class="o">.</span><span class="n">notnull</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">'property'</span><span class="p">])</span> <span class="k">else</span> <span class="mf">0.0</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+
+<span class="c1"># inspect the computed similarities (not needed for training)</span>
+<span class="sd">""" print("System Jaccard similarity stats:")</span>
+<span class="sd">print(merged_df['system_jaccard'].describe())</span>
+<span class="sd">print("Component Jaccard similarity stats:")</span>
+<span class="sd">print(merged_df['component_jaccard'].describe())</span>
+<span class="sd">print("Property Jaccard similarity stats:")</span>
+<span class="sd">print(merged_df['property_jaccard'].describe()) """</span>
+
+<span class="c1"># Convert the columns to sparse matrices so they can be used as features.</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">scipy.sparse</span><span class="w"> </span><span class="kn">import</span> <span class="n">csr_matrix</span>
+<span class="n">X_system_jaccard</span> <span class="o">=</span> <span class="n">csr_matrix</span><span class="p">(</span><span class="n">merged_df</span><span class="p">[[</span><span class="s1">'system_jaccard'</span><span class="p">]]</span><span class="o">.</span><span class="n">values</span><span class="p">)</span>
+<span class="n">X_component_jaccard</span> <span class="o">=</span> <span class="n">csr_matrix</span><span class="p">(</span><span class="n">merged_df</span><span class="p">[[</span><span class="s1">'component_jaccard'</span><span class="p">]]</span><span class="o">.</span><span class="n">values</span><span class="p">)</span>
+<span class="n">X_property_jaccard</span> <span class="o">=</span> <span class="n">csr_matrix</span><span class="p">(</span><span class="n">merged_df</span><span class="p">[[</span><span class="s1">'property_jaccard'</span><span class="p">]]</span><span class="o">.</span><span class="n">values</span><span class="p">)</span>
+
+<span class="c1"># ------------------------------</span>
+<span class="c1"># Compute lexical similarity for long_common_name</span>
+
+<span class="c1"># We want to compute, for each row, the similarity between the query and the long_common_name.</span>
 <span class="c1"># First, build a TF-IDF vectorizer fitted on the union of all queries and names.</span>
 <span class="n">corpus</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">([</span><span class="n">merged_df</span><span class="p">[</span><span class="s1">'query'</span><span class="p">],</span> <span class="n">merged_df</span><span class="p">[</span><span class="s1">'long_common_name'</span><span class="p">]])</span>
 <span class="n">vectorizer</span> <span class="o">=</span> <span class="n">TfidfVectorizer</span><span class="p">()</span>
@@ -7570,46 +7737,175 @@ a.anchor-link {
 <span class="n">merged_df</span><span class="p">[</span><span class="s1">'name_cosine_sim'</span><span class="p">]</span> <span class="o">=</span> <span class="n">cosine_sim</span>
 
 <span class="c1"># Now use the computed cosine similarity as the feature for the name field.</span>
-<span class="n">X_name</span> <span class="o">=</span> <span class="n">csr_matrix</span><span class="p">(</span><span class="n">merged_df</span><span class="p">[[</span><span class="s1">'name_cosine_sim'</span><span class="p">]]</span><span class="o">.</span><span class="n">values</span><span class="p">)</span>
+<span class="n">X_name_lexical_similarity</span> <span class="o">=</span> <span class="n">csr_matrix</span><span class="p">(</span><span class="n">merged_df</span><span class="p">[[</span><span class="s1">'name_cosine_sim'</span><span class="p">]]</span><span class="o">.</span><span class="n">values</span><span class="p">)</span>
 
 <span class="c1"># ------------------------------</span>
-<span class="c1"># Process additional features</span>
-<span class="c1"># Process loinc_ID as before (if needed)</span>
-<span class="n">X_loinc_ID</span> <span class="o">=</span> <span class="n">TfidfVectorizer</span><span class="p">()</span><span class="o">.</span><span class="n">fit_transform</span><span class="p">(</span><span class="n">merged_df</span><span class="p">[</span><span class="s1">'loinc_num'</span><span class="p">])</span>
+<span class="c1"># Compute semantic similarity for features property, system, component, long_common_name</span>
 
-<span class="c1"># Create binary indicator features for measurement, system, and component</span>
-<span class="n">merged_df</span><span class="p">[</span><span class="s1">'measurement_indicator'</span><span class="p">]</span> <span class="o">=</span> <span class="n">merged_df</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span>
-    <span class="k">lambda</span> <span class="n">row</span><span class="p">:</span> <span class="mi">1</span> <span class="k">if</span> <span class="n">row</span><span class="p">[</span><span class="s1">'query'</span><span class="p">]</span> <span class="ow">in</span> <span class="n">row</span><span class="p">[</span><span class="s1">'long_common_name'</span><span class="p">]</span> <span class="k">else</span> <span class="mi">0</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
-<span class="n">merged_df</span><span class="p">[</span><span class="s1">'system_indicator'</span><span class="p">]</span> <span class="o">=</span> <span class="n">merged_df</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span>
-    <span class="k">lambda</span> <span class="n">row</span><span class="p">:</span> <span class="mi">1</span> <span class="k">if</span> <span class="n">row</span><span class="p">[</span><span class="s1">'query'</span><span class="p">]</span> <span class="ow">in</span> <span class="n">row</span><span class="p">[</span><span class="s1">'system'</span><span class="p">]</span> <span class="k">else</span> <span class="mi">0</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
-<span class="n">merged_df</span><span class="p">[</span><span class="s1">'component_indicator'</span><span class="p">]</span> <span class="o">=</span> <span class="n">merged_df</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span>
-    <span class="k">lambda</span> <span class="n">row</span><span class="p">:</span> <span class="mi">1</span> <span class="k">if</span> <span class="n">row</span><span class="p">[</span><span class="s1">'query'</span><span class="p">]</span> <span class="ow">in</span> <span class="n">row</span><span class="p">[</span><span class="s1">'component'</span><span class="p">]</span> <span class="k">else</span> <span class="mi">0</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="c1"># Create similarity scores for features, loinc name measurement, system, and component</span>
+<span class="c1"># Apply a similarity function to each row, based on vector embeddings </span>
+<span class="n">merged_df</span><span class="p">[</span><span class="s1">'name_similarity'</span><span class="p">]</span> <span class="o">=</span> <span class="n">merged_df</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span>
+    <span class="k">lambda</span> <span class="n">row</span><span class="p">:</span> <span class="n">calculate_embedding_similarity</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">'query'</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s1">'long_common_name'</span><span class="p">]),</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">merged_df</span><span class="p">[</span><span class="s1">'property_similarity'</span><span class="p">]</span> <span class="o">=</span> <span class="n">merged_df</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span>
+    <span class="k">lambda</span> <span class="n">row</span><span class="p">:</span> <span class="n">calculate_embedding_similarity</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">'query'</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s1">'property'</span><span class="p">]),</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">merged_df</span><span class="p">[</span><span class="s1">'system_similarity'</span><span class="p">]</span> <span class="o">=</span> <span class="n">merged_df</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span>
+    <span class="k">lambda</span> <span class="n">row</span><span class="p">:</span> <span class="n">calculate_embedding_similarity</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">'query'</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s1">'system'</span><span class="p">]),</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">merged_df</span><span class="p">[</span><span class="s1">'component_similarity'</span><span class="p">]</span> <span class="o">=</span> <span class="n">merged_df</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span>
+    <span class="k">lambda</span> <span class="n">row</span><span class="p">:</span> <span class="n">calculate_embedding_similarity</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">'query'</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s1">'component'</span><span class="p">]),</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
 
-<span class="n">X_measurement_indicator</span> <span class="o">=</span> <span class="n">csr_matrix</span><span class="p">(</span><span class="n">merged_df</span><span class="p">[[</span><span class="s1">'measurement_indicator'</span><span class="p">]]</span><span class="o">.</span><span class="n">values</span><span class="p">)</span>
-<span class="n">X_system_indicator</span> <span class="o">=</span> <span class="n">csr_matrix</span><span class="p">(</span><span class="n">merged_df</span><span class="p">[[</span><span class="s1">'system_indicator'</span><span class="p">]]</span><span class="o">.</span><span class="n">values</span><span class="p">)</span>
-<span class="n">X_component_indicator</span> <span class="o">=</span> <span class="n">csr_matrix</span><span class="p">(</span><span class="n">merged_df</span><span class="p">[[</span><span class="s1">'component_indicator'</span><span class="p">]]</span><span class="o">.</span><span class="n">values</span><span class="p">)</span>
+<span class="c1"># Convert to sparse matrices</span>
+<span class="n">X_name_semantic_similarity</span> <span class="o">=</span> <span class="n">csr_matrix</span><span class="p">(</span><span class="n">merged_df</span><span class="p">[[</span><span class="s1">'name_similarity'</span><span class="p">]]</span><span class="o">.</span><span class="n">values</span><span class="p">)</span>
+<span class="n">X_property_similarity</span> <span class="o">=</span> <span class="n">csr_matrix</span><span class="p">(</span><span class="n">merged_df</span><span class="p">[[</span><span class="s1">'property_similarity'</span><span class="p">]]</span><span class="o">.</span><span class="n">values</span><span class="p">)</span>
+<span class="n">X_system_similarity</span> <span class="o">=</span> <span class="n">csr_matrix</span><span class="p">(</span><span class="n">merged_df</span><span class="p">[[</span><span class="s1">'system_similarity'</span><span class="p">]]</span><span class="o">.</span><span class="n">values</span><span class="p">)</span>
+<span class="n">X_component_similarity</span> <span class="o">=</span> <span class="n">csr_matrix</span><span class="p">(</span><span class="n">merged_df</span><span class="p">[[</span><span class="s1">'component_similarity'</span><span class="p">]]</span><span class="o">.</span><span class="n">values</span><span class="p">)</span>
 
 <span class="c1"># ------------------------------</span>
-<span class="c1"># Process numerical feature: 'rank' (scaled)</span>
+<span class="c1"># Process numerical feature: 'rank' using StandardScaler</span>
+<span class="c1"># Treat 0 (NaN) values as very high ranks by replacing them with the largest number </span>
+<span class="n">max_rank</span> <span class="o">=</span> <span class="n">merged_df</span><span class="p">[</span><span class="s1">'rank'</span><span class="p">]</span><span class="o">.</span><span class="n">max</span><span class="p">()</span>
+<span class="n">merged_df</span><span class="p">[</span><span class="s1">'rank'</span><span class="p">]</span> <span class="o">=</span> <span class="n">merged_df</span><span class="p">[</span><span class="s1">'rank'</span><span class="p">]</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">max_rank</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+
 <span class="n">scaler</span> <span class="o">=</span> <span class="n">StandardScaler</span><span class="p">()</span>
 <span class="n">X_rank</span> <span class="o">=</span> <span class="n">scaler</span><span class="o">.</span><span class="n">fit_transform</span><span class="p">(</span><span class="n">merged_df</span><span class="p">[[</span><span class="s1">'rank'</span><span class="p">]])</span>
 <span class="n">X_rank_sparse</span> <span class="o">=</span> <span class="n">csr_matrix</span><span class="p">(</span><span class="n">X_rank</span><span class="p">)</span>
 
 <span class="c1"># ------------------------------</span>
 <span class="c1"># Combine all features into one sparse matrix.</span>
-<span class="c1"># Here, we use the computed cosine similarity (X_name) rather than the full TF-IDF matrix.</span>
-<span class="n">X</span> <span class="o">=</span> <span class="n">hstack</span><span class="p">([</span><span class="n">X_name</span><span class="p">,</span> <span class="n">X_measurement_indicator</span><span class="p">,</span> <span class="n">X_system_indicator</span><span class="p">,</span> 
-            <span class="n">X_component_indicator</span><span class="p">,</span> <span class="n">X_rank_sparse</span><span class="p">])</span>
+<span class="n">X</span> <span class="o">=</span> <span class="n">hstack</span><span class="p">([</span>
+    <span class="n">X_rank_sparse</span><span class="p">,</span>
+    <span class="n">X_name_semantic_similarity</span><span class="p">,</span> 
+    <span class="n">X_name_lexical_similarity</span><span class="p">,</span>
+    <span class="n">X_system_similarity</span><span class="p">,</span> 
+    <span class="n">X_component_similarity</span><span class="p">,</span>
+    <span class="n">X_system_jaccard</span><span class="p">,</span>
+    <span class="n">X_component_jaccard</span><span class="p">,</span>
+    <span class="n">X_property_jaccard</span>
+<span class="p">])</span>
 
 <span class="c1"># Labels and query identifiers</span>
-<span class="n">y</span> <span class="o">=</span> <span class="n">merged_df</span><span class="p">[</span><span class="s1">'inSearch'</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
-<span class="n">qid</span> <span class="o">=</span> <span class="n">merged_df</span><span class="p">[</span><span class="s1">'query'</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
-
-<span class="c1"># ------------------------------</span>
-<span class="c1"># Query-aware train/test splitting</span>
-<span class="n">splitter</span> <span class="o">=</span> <span class="n">GroupShuffleSplit</span><span class="p">(</span><span class="n">test_size</span><span class="o">=</span><span class="mf">0.3</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">42</span><span class="p">)</span>
+<span class="n">y</span> <span class="o">=</span> <span class="n">merged_df</span><span class="p">[</span><span class="s1">'relevant'</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+<span class="c1"># convert query strings to integers -&gt; required for AdaRank</span>
+<span class="n">merged_df</span><span class="p">[</span><span class="s1">'qid_numeric'</span><span class="p">]</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">factorize</span><span class="p">(</span><span class="n">merged_df</span><span class="p">[</span><span class="s1">'query'</span><span class="p">])[</span><span class="mi">0</span><span class="p">]</span>
+<span class="n">qid</span> <span class="o">=</span> <span class="n">merged_df</span><span class="p">[</span><span class="s1">'qid_numeric'</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h3 id="3.-Indexing">3. Indexing<a class="anchor-link" href="#3.-Indexing">¶</a></h3><p>Store processed features in /idxdata folder for faster retrieval.</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [61]:</div>
+<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="cm-editor cm-s-jupyter">
+<div class="highlight hl-ipython3"><pre><span></span><span class="n">merged_df</span><span class="o">.</span><span class="n">to_csv</span><span class="p">(</span><span class="s1">'idxdata/indexed_dataset.csv'</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="c1"># Save the feature matrix X to a file for later retrieval</span>
+<span class="n">save_npz</span><span class="p">(</span><span class="s1">'idxdata/X_sparse.npz'</span><span class="p">,</span> <span class="n">X</span><span class="p">)</span>
+<span class="c1"># Save the labels y to a file for later retrieval</span>
+<span class="n">np</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="s1">'idxdata/y.npy'</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
+<span class="c1"># Save the query identifiers qid to a file for later retrieval</span>
+<span class="n">np</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="s1">'idxdata/qid.npy'</span><span class="p">,</span> <span class="n">qid</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [62]:</div>
+<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="cm-editor cm-s-jupyter">
+<div class="highlight hl-ipython3"><pre><span></span><span class="n">X</span> <span class="o">=</span> <span class="n">load_npz</span><span class="p">(</span><span class="s1">'idxdata/X_sparse.npz'</span><span class="p">)</span>
+<span class="n">merged_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="s1">'idxdata/indexed_dataset.csv'</span><span class="p">)</span>
+<span class="n">y</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s1">'idxdata/y.npy'</span><span class="p">)</span>
+<span class="n">qid</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s1">'idxdata/qid.npy'</span><span class="p">)</span> 
+<span class="c1"># Create a string array capturing the name of the features -&gt; used later during evaluation</span>
+<span class="n">feature_names</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">"X_rank_sparse"</span><span class="p">,</span>
+    <span class="s2">"X_name_semantic_similarity"</span><span class="p">,</span> 
+    <span class="s2">"X_name_lexical_similarity"</span><span class="p">,</span>
+    <span class="s2">"X_system_similarity"</span><span class="p">,</span> 
+    <span class="s2">"X_component_similarity"</span><span class="p">,</span>
+    <span class="s2">"X_system_jaccard"</span><span class="p">,</span>
+    <span class="s2">"X_component_jaccard"</span><span class="p">,</span>
+    <span class="s2">"X_property_jaccard"</span>
+<span class="p">]</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h3 id="4.-AdaRank-Training">4. AdaRank Training<a class="anchor-link" href="#4.-AdaRank-Training">¶</a></h3><ul>
+<li><p>Train AdaRank on the previouosly generated data.</p>
+</li>
+<li><p><strong>Dataset Splitting</strong></p>
+<ul>
+<li>Uses GroupShuffleSplit to create train/test sets (80/20 split)</li>
+<li>Maintains query integrity by keeping all documents for a query together</li>
+<li>We do not use k-fold as during AdaRank this would lead to new model initialization for every fold -&gt; no transferability.</li>
+</ul>
+</li>
+<li><p><strong>Split Verification</strong></p>
+<ul>
+<li>Creates separate DataFrames for train and test data</li>
+</ul>
+</li>
+<li><p><strong>Feature Validation</strong></p>
+<ul>
+<li>Calculates basic statistics (mean, standard deviation) for features</li>
+<li>Confirms meaningful variance exists across all features</li>
+</ul>
+</li>
+<li><p><strong>Model Training</strong></p>
+<ul>
+<li>Implements AdaRank with 500 maximum iterations, and 50 iterations early stoppage</li>
+</ul>
+</li>
+<li><p><strong>Preliminiary Model Evaluation</strong></p>
+<ul>
+<li>Tests model performance across multiple ranking depths (k=1,2,3,4,5,10,20)</li>
+<li>Calculates and reports NDCG score at each depth</li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [63]:</div>
+<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="cm-editor cm-s-jupyter">
+<div class="highlight hl-ipython3"><pre><span></span><span class="c1"># Query-aware train/test splitting</span>
+<span class="c1"># we disbale te random state due to the small dataset</span>
+<span class="n">splitter</span> <span class="o">=</span> <span class="n">GroupShuffleSplit</span><span class="p">(</span><span class="n">test_size</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
 <span class="n">train_idx</span><span class="p">,</span> <span class="n">test_idx</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">splitter</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">groups</span><span class="o">=</span><span class="n">qid</span><span class="p">))</span>
-
 <span class="n">X_train</span><span class="p">,</span> <span class="n">X_test</span> <span class="o">=</span> <span class="n">X</span><span class="p">[</span><span class="n">train_idx</span><span class="p">],</span> <span class="n">X</span><span class="p">[</span><span class="n">test_idx</span><span class="p">]</span>
 <span class="n">y_train</span><span class="p">,</span> <span class="n">y_test</span> <span class="o">=</span> <span class="n">y</span><span class="p">[</span><span class="n">train_idx</span><span class="p">],</span> <span class="n">y</span><span class="p">[</span><span class="n">test_idx</span><span class="p">]</span>
 <span class="n">qid_train</span><span class="p">,</span> <span class="n">qid_test</span> <span class="o">=</span> <span class="n">qid</span><span class="p">[</span><span class="n">train_idx</span><span class="p">],</span> <span class="n">qid</span><span class="p">[</span><span class="n">test_idx</span><span class="p">]</span>
@@ -7618,19 +7914,30 @@ a.anchor-link {
 <span class="n">train_df</span> <span class="o">=</span> <span class="n">merged_df</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="n">train_idx</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
 <span class="n">test_df</span> <span class="o">=</span> <span class="n">merged_df</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="n">test_idx</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
 
-<span class="c1"># Print the DataFrames for debugging</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"Train DataFrame:"</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="n">train_df</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"</span><span class="se">\n</span><span class="s2">Test DataFrame:"</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="n">test_df</span><span class="p">)</span>
+<span class="c1">#Debugging prints</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"Unique queries in train:"</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">qid</span><span class="p">[</span><span class="n">train_idx</span><span class="p">]))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"Unique queries in test:"</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">qid</span><span class="p">[</span><span class="n">test_idx</span><span class="p">]))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"Unique queries and their frequencies:"</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">qid</span><span class="p">,</span> <span class="n">return_counts</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
+
+<span class="c1">#print("X_train:\n", X_train.toarray())</span>
+<span class="c1">#print("y_train:", y_train)</span>
+
+<span class="c1">#Check basic statistics </span>
+<span class="c1">#We can confirm that all selected features plus label have a meaningful variance/std dev so we dont need to apply a feature selection before </span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"X_train summary stats (mean, std):"</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">X_train</span><span class="o">.</span><span class="n">toarray</span><span class="p">(),</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">std</span><span class="p">(</span><span class="n">X_train</span><span class="o">.</span><span class="n">toarray</span><span class="p">(),</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">))</span>
+<span class="c1">#print("y_train distribution:", np.unique(y_train, return_counts=True))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"y_train summary stats (mean, std):"</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">y_train</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">std</span><span class="p">(</span><span class="n">y_train</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">))</span>
 
 <span class="c1"># ------------------------------</span>
 <span class="c1"># Train and evaluate AdaRank</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">AdaRankv2</span><span class="p">(</span><span class="n">max_iter</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span> <span class="n">estop</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span> <span class="n">scorer</span><span class="o">=</span><span class="n">NDCGScorer</span><span class="p">(</span><span class="n">k</span><span class="o">=</span><span class="mi">5</span><span class="p">))</span>
+<span class="c1">#model = AdaRank(max_iter=100, estop=100, scorer=NDCGScorer(k=5))</span>
+<span class="n">model</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">,</span> <span class="n">qid_train</span><span class="p">)</span>
+
+<span class="c1"># test NNDCG for different values of k</span>
 <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">20</span><span class="p">):</span>
-    <span class="n">score</span> <span class="o">=</span> <span class="n">NDCGScorer</span><span class="p">(</span><span class="n">k</span><span class="o">=</span><span class="n">k</span><span class="p">)(</span><span class="n">y_test</span><span class="p">,</span> <span class="n">y_pred</span><span class="p">,</span> <span class="n">qid_test</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
-    <span class="n">model</span> <span class="o">=</span> <span class="n">AdaRank</span><span class="p">(</span><span class="n">max_iter</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">estop</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">scorer</span><span class="o">=</span><span class="n">scorer</span><span class="p">)</span>
-    <span class="n">model</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">,</span> <span class="n">qid_train</span><span class="p">)</span>
-    <span class="n">y_pred</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">qid_test</span><span class="p">)</span>    
+    <span class="n">y_pred</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_test</span><span class="p">,</span> <span class="n">qid_test</span><span class="p">)</span> 
+    <span class="n">score</span> <span class="o">=</span> <span class="n">NDCGScorer</span><span class="p">(</span><span class="n">k</span><span class="o">=</span><span class="n">k</span><span class="p">)(</span><span class="n">y_test</span><span class="p">,</span> <span class="n">y_pred</span><span class="p">,</span> <span class="n">qid_test</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>   
     <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"NDCG Score </span><span class="si">{</span><span class="n">score</span><span class="si">}</span><span class="s2">, K </span><span class="si">{</span><span class="n">k</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>
 </div>
@@ -7644,221 +7951,40 @@ a.anchor-link {
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Train DataFrame:
-    loinc_num                                   long_common_name  \
-194   33870-7  Bilirubin.total [Presence] in Unspecified spec...   
-195   29265-6  Calcium [Moles/volume] corrected for albumin i...   
-196   14423-8    Bilirubin.total [Mass/volume] in Synovial fluid   
-197   23658-8                  Other Antibiotic [Susceptibility]   
-198   19000-9                        Vancomycin [Susceptibility]   
-..        ...                                                ...   
-386   82556-2  Inhalant Allergen Mix 6 (Alternaria tenuis+Mug...   
-387   73710-6  Weed Allergen Mix 209 (Common ragweed+Western ...   
-388   15261-1  Weed Allergen Mix 209 (Common ragweed+Western ...   
-389   82039-9  Weed Allergen Mix 209 (Common ragweed+Western ...   
-390   24480-6  Weed Allergen Mix 1 (Common ragweed+Mugwort+Go...   
-
-                                             component    system property  \
-194                                          Bilirubin       XXX    PrThr   
-195                     Calcium^^corrected for albumin  Ser/Plas     SCnc   
-196                                          Bilirubin  Synv fld     MCnc   
-197                                     Antibiotic XXX   Isolate     Susc   
-198                                         Vancomycin   Isolate     Susc   
-..                                                 ...       ...      ...   
-386  (Alternaria tenuis+Artemisia vulgaris+Betula v...       Ser    PrThr   
-387  (Ambrosia elatior+Ambrosia psilostachya+Ambros...       Ser     ACnc   
-388  (Ambrosia elatior+Ambrosia psilostachya+Ambros...       Ser    PrThr   
-389  (Ambrosia elatior+Ambrosia psilostachya+Ambros...       Ser    PrThr   
-390  (Ambrosia elatior+Artemisia vulgaris+Chenopodi...       Ser     ACnc   
-
-      rank  inSearch                    query  name_cosine_sim  \
-194  12528         0  White blood cells count         0.000000   
-195   4485         0  White blood cells count         0.000000   
-196      0         0  White blood cells count         0.000000   
-197    613         0  White blood cells count         0.000000   
-198   2435         0  White blood cells count         0.000000   
-..     ...       ...                      ...              ...   
-386      0         0     cholesterol in blood         0.021104   
-387      0         0     cholesterol in blood         0.016993   
-388      0         0     cholesterol in blood         0.017164   
-389      0         0     cholesterol in blood         0.016717   
-390   3228         0     cholesterol in blood         0.018176   
-
-     measurement_indicator  system_indicator  component_indicator  
-194                      0                 0                    0  
-195                      0                 0                    0  
-196                      0                 0                    0  
-197                      0                 0                    0  
-198                      0                 0                    0  
-..                     ...               ...                  ...  
-386                      0                 0                    0  
-387                      0                 0                    0  
-388                      0                 0                    0  
-389                      0                 0                    0  
-390                      0                 0                    0  
-
-[197 rows x 12 columns]
-
-Test DataFrame:
-    loinc_num                                   long_common_name  \
-0      1988-5  C reactive protein [Mass/volume] in Serum or P...   
-1      1959-6                Bicarbonate [Moles/volume] in Blood   
-2     10331-7                                 Rh [Type] in Blood   
-3     18998-5     Trimethoprim+Sulfamethoxazole [Susceptibility]   
-4      1975-2   Bilirubin.total [Mass/volume] in Serum or Plasma   
-..        ...                                                ...   
-189   15262-9  Tree Allergen Mix 1 (Boxelder+Silver birch+Whi...   
-190   24479-8  Tree Allergen Mix 1 (Boxelder+Silver birch+Whi...   
-191   82031-6  Tree Allergen Mix 2 (Boxelder+White oak+White ...   
-192   23797-4  Tree Allergen Mix 2 (Boxelder+White oak+White ...   
-193   24489-7  Tree Allergen Mix 2 (Boxelder+White oak+White ...   
-
-                                             component    system property  \
-0                                   C reactive protein  Ser/Plas     MCnc   
-1                                          Bicarbonate       Bld     SCnc   
-2                                                   Rh       Bld     Type   
-3                        Trimethoprim+Sulfamethoxazole   Isolate     Susc   
-4                                            Bilirubin  Ser/Plas     MCnc   
-..                                                 ...       ...      ...   
-189  (Acer negundo+Betula verrucosa+Quercus alba+Ul...       Ser    PrThr   
-190  (Acer negundo+Betula verrucosa+Quercus alba+Ul...       Ser    PrThr   
-191  (Acer negundo+Quercus alba+Ulmus americana+Pop...       Ser     ACnc   
-192  (Acer negundo+Quercus alba+Ulmus americana+Pop...       Ser    PrThr   
-193  (Acer negundo+Quercus alba+Ulmus americana+Pop...       Ser    PrThr   
-
-      rank  inSearch                query  name_cosine_sim  \
-0      128         0     glucose in blood         0.042460   
-1      236         0     glucose in blood         0.160345   
-2      553         0     glucose in blood         0.165141   
-3     1291         0     glucose in blood         0.000000   
-4       22         0     glucose in blood         0.052102   
-..     ...       ...                  ...              ...   
-189  14099         0  bilirubin in plasma         0.027004   
-190  10311         0  bilirubin in plasma         0.025119   
-191  16086         0  bilirubin in plasma         0.025439   
-192  17014         0  bilirubin in plasma         0.026121   
-193      0         0  bilirubin in plasma         0.024403   
-
-     measurement_indicator  system_indicator  component_indicator  
-0                        0                 0                    0  
-1                        0                 0                    0  
-2                        0                 0                    0  
-3                        0                 0                    0  
-4                        0                 0                    0  
-..                     ...               ...                  ...  
-189                      0                 0                    0  
-190                      0                 0                    0  
-191                      0                 0                    0  
-192                      0                 0                    0  
-193                      0                 0                    0  
-
-[194 rows x 12 columns]
-NDCG Score 0.0, K 1
-NDCG Score 0.38685280723454163, K 2
-NDCG Score 0.5307212739772434, K 3
-NDCG Score 0.6096199500078984, K 4
-NDCG Score 0.6608397947263839, K 5
-NDCG Score 0.42883980903376645, K 10
-NDCG Score 0.37563517898820087, K 20
+<pre>Unique queries in train: [0 1 3 5 6 7]
+Unique queries in test: [2 4]
+Unique queries and their frequencies: (array([0, 1, 2, 3, 4, 5, 6, 7]), array([517, 491, 517, 514, 550, 521, 550, 550]))
+X_train summary stats (mean, std): [0.0056889  0.39012529 0.0403473  0.36812505 0.38595793 0.00403012
+ 0.01871622 0.05472479] [0.95613794 0.11574428 0.08996267 0.08048696 0.12437721 0.03642981
+ 0.1132546  0.22744226]
+y_train summary stats (mean, std): 0.10976773783009863 0.31260003448778023
+NDCG Score 1.0, K 1
+NDCG Score 1.0, K 2
+NDCG Score 1.0, K 3
+NDCG Score 1.0, K 4
+NDCG Score 1.0, K 5
+NDCG Score 1.0, K 10
+NDCG Score 1.0, K 20
 </pre>
 </div>
 </div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>/Users/davis/VSCode/Information-Retrieval-3/adarank.py:78: RuntimeWarning: divide by zero encountered in scalar divide
-  h['alpha'] = 0.5 * (math.log(np.dot(weights, 1 + h['score']) /
-1	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-2	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-3	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-4	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-5	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-6	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-7	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-8	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-9	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-10	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-11	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-/Users/davis/VSCode/Information-Retrieval-3/adarank.py:78: RuntimeWarning: divide by zero encountered in scalar divide
-  h['alpha'] = 0.5 * (math.log(np.dot(weights, 1 + h['score']) /
-1	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-2	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-3	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-4	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-5	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-6	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-7	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-8	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-9	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-10	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-11	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-/Users/davis/VSCode/Information-Retrieval-3/adarank.py:78: RuntimeWarning: divide by zero encountered in scalar divide
-  h['alpha'] = 0.5 * (math.log(np.dot(weights, 1 + h['score']) /
-1	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-2	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-3	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-4	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-5	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-6	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-7	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-8	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-9	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-10	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-11	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-/Users/davis/VSCode/Information-Retrieval-3/adarank.py:78: RuntimeWarning: divide by zero encountered in scalar divide
-  h['alpha'] = 0.5 * (math.log(np.dot(weights, 1 + h['score']) /
-1	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-2	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-3	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-4	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-5	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-6	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-7	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-8	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-9	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-10	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-11	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-/Users/davis/VSCode/Information-Retrieval-3/adarank.py:78: RuntimeWarning: divide by zero encountered in scalar divide
-  h['alpha'] = 0.5 * (math.log(np.dot(weights, 1 + h['score']) /
-1	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-2	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-3	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-4	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-5	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-6	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-7	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-8	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-9	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-10	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-11	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-/Users/davis/VSCode/Information-Retrieval-3/adarank.py:78: RuntimeWarning: divide by zero encountered in scalar divide
-  h['alpha'] = 0.5 * (math.log(np.dot(weights, 1 + h['score']) /
-1	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-2	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-3	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-4	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-5	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-6	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-7	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-8	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-9	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-10	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-11	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-/Users/davis/VSCode/Information-Retrieval-3/adarank.py:78: RuntimeWarning: divide by zero encountered in scalar divide
-  h['alpha'] = 0.5 * (math.log(np.dot(weights, 1 + h['score']) /
-1	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-2	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-3	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-4	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-5	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-6	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-7	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-8	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-9	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-10	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-11	inf	0	[1. 1.]	train 0.3930	valid 0.3930
-</pre>
 </div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h3 id="4.-AdaRank-Evaluation">4. AdaRank Evaluation<a class="anchor-link" href="#4.-AdaRank-Evaluation">¶</a></h3><ul>
+<li><p><strong>Test Results Setup</strong>: Creates test DataFrame with predictions and true labels; counts unique queries in test set and full dataset to verify coverage</p>
+</li>
+<li><p><strong>Prediction Analysis</strong>: Groups and sorts results by prediction score; displays top 10 predictions per query with item names, true relevance, and predicted scores</p>
+</li>
+<li><p><strong>Display Coefficient</strong>: We diplay the coefficient for AdaRank. AdaRank does only select two featrues for generating the ranking. This behavious was consistent even after impelemnting additional regularization in AdaRank.</p>
+</li>
+</ul>
 </div>
 </div>
 </div>
@@ -7867,15 +7993,17 @@ NDCG Score 0.37563517898820087, K 20
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [84]:</div>
+<div class="jp-InputPrompt jp-InputArea-prompt">In [64]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
-<div class="highlight hl-ipython3"><pre><span></span><span class="c1"># Create a DataFrame for the test set using the test indices</span>
+<div class="highlight hl-ipython3"><pre><span></span><span class="c1"># Showcasing some predictions from the test set</span>
+
+<span class="c1"># Create a DataFrame for the test set using the test indices</span>
 <span class="n">test_df</span> <span class="o">=</span> <span class="n">merged_df</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="n">test_idx</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
 <span class="n">test_df</span><span class="p">[</span><span class="s1">'y_true'</span><span class="p">]</span> <span class="o">=</span> <span class="n">y_test</span>
 <span class="n">test_df</span><span class="p">[</span><span class="s1">'y_pred'</span><span class="p">]</span> <span class="o">=</span> <span class="n">y_pred</span>
 
-<span class="c1">#debugging tests </span>
+<span class="c1">#Check how many distinct queries are in the test set</span>
 <span class="n">unique_test_queries</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">qid_test</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"Number of unique queries in test:"</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">unique_test_queries</span><span class="p">))</span>
 <span class="nb">print</span><span class="p">(</span><span class="n">unique_test_queries</span><span class="p">)</span>
@@ -7884,12 +8012,13 @@ NDCG Score 0.37563517898820087, K 20
 <span class="nb">print</span><span class="p">(</span><span class="s2">"Number of distinct queries overall:"</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">all_queries</span><span class="p">))</span>
 <span class="nb">print</span><span class="p">(</span><span class="n">all_queries</span><span class="p">)</span>
 
-<span class="c1"># for each query in the test set, print the top 3 predictions (sorted by predicted score)</span>
+<span class="c1"># for each query in the test set, print the top 10 predictions (sorted by predicted score)</span>
+<span class="c1"># Model seems to predcit well, however could be due to the small dataset and overfitting </span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"Top Predictions per Query:"</span><span class="p">)</span>
 <span class="k">for</span> <span class="n">query</span><span class="p">,</span> <span class="n">group</span> <span class="ow">in</span> <span class="n">test_df</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s1">'query'</span><span class="p">):</span>
     <span class="n">sorted_group</span> <span class="o">=</span> <span class="n">group</span><span class="o">.</span><span class="n">sort_values</span><span class="p">(</span><span class="n">by</span><span class="o">=</span><span class="s1">'y_pred'</span><span class="p">,</span> <span class="n">ascending</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
     <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Query: </span><span class="si">{</span><span class="n">query</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="n">sorted_group</span><span class="p">[[</span><span class="s1">'loinc_num'</span><span class="p">,</span> <span class="s1">'long_common_name'</span><span class="p">,</span> <span class="s1">'y_true'</span><span class="p">,</span> <span class="s1">'y_pred'</span><span class="p">]]</span><span class="o">.</span><span class="n">head</span><span class="p">(</span><span class="mi">3</span><span class="p">))</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">sorted_group</span><span class="p">[[</span><span class="s1">'long_common_name'</span><span class="p">,</span> <span class="s1">'y_true'</span><span class="p">,</span> <span class="s1">'y_pred'</span><span class="p">]]</span><span class="o">.</span><span class="n">head</span><span class="p">(</span><span class="mi">10</span><span class="p">))</span>
     <span class="nb">print</span><span class="p">(</span><span class="s2">"-"</span> <span class="o">*</span> <span class="mi">40</span><span class="p">)</span>
 </pre></div>
 </div>
@@ -7904,33 +8033,362 @@ NDCG Score 0.37563517898820087, K 20
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
 <pre>Number of unique queries in test: 2
-['bilirubin in plasma' 'glucose in blood']
-Number of distinct queries overall: 4
+[2 4]
+Number of distinct queries overall: 8
 ['glucose in blood' 'bilirubin in plasma' 'White blood cells count'
- 'cholesterol in blood']
+ 'cholesterol in Bld' 'fever virus' 'calcium oxalate crystals' 'iron'
+ 'PrThr']
 Top Predictions per Query:
-Query: bilirubin in plasma
-    loinc_num                                   long_common_name  y_true  \
-98     1742-6  Alanine aminotransferase [Enzymatic activity/v...       0   
-99    20565-8      Carbon dioxide, total [Moles/volume] in Blood       0   
-171   35672-5  Bilirubin.direct/Bilirubin.total in Serum or P...       1   
-
-     y_pred  
-98      inf  
-99      inf  
-171     inf  
+Query: White blood cells count
+                                       long_common_name  y_true    y_pred
+1098  Blasts/Leukocytes [Pure number fraction] in Bo...       1  4.701988
+1088  Deprecated Myeloblasts/100 leukocytes in Blood...       1  4.667403
+1122  Myelocytes/Leukocytes in Stem cell product by ...       1  4.658710
+1112  Deprecated Monocytes+Macrophages/100 leukocyte...       1  4.655984
+1097          Large unstained cells/Leukocytes in Blood       1  4.650530
+1079          Nonhematic cells/Leukocytes in Body fluid       1  4.629085
+1121  Eosinophils/Leukocytes in Stem cell product by...       1  4.628964
+1105                    Heterophils/Leukocytes in Blood       1  4.614963
+1095  Other cells/Leukocytes in Synovial fluid by Ma...       1  4.610029
+1081  Neutrophils/Leukocytes [Pure number fraction] ...       1  4.604194
 ----------------------------------------
-Query: glucose in blood
-   loinc_num                                   long_common_name  y_true  \
-0     1988-5  C reactive protein [Mass/volume] in Serum or P...       0   
-62   54439-5                Calcium bilirubinate/Total in Stone       0   
-73   39481-7           Glucose [Moles/volume] in Arterial blood       1   
-
-    y_pred  
-0      inf  
-62     inf  
-73     inf  
+Query: fever virus
+                                       long_common_name  y_true    y_pred
+2083  Colorado tick fever virus Ab [Presence] in Spe...       1  4.585992
+2046  Rift valley fever virus Ag [Presence] in Specimen       1  4.575512
+2076     Rift valley fever virus Ab [Presence] in Serum       1  4.572767
+2075  Colorado tick fever virus RNA [Presence] in Sp...       1  4.569263
+2052  African swine fever virus Ab [Presence] in Bod...       1  4.553313
+2082  African swine fever virus Ag [Presence] in Tis...       1  4.550629
+2042  Colorado tick fever virus IgG Ab [Presence] in...       1  4.549562
+2085          Yellow fever virus Ab [Presence] in Serum       1  4.547721
+2078  Crimean-Congo hemorrhagic fever virus RNA [Pre...       1  4.547554
+2059  Classical swine fever virus neutralizing antib...       1  4.542923
 ----------------------------------------
+</pre>
+</div>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [65]:</div>
+<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="cm-editor cm-s-jupyter">
+<div class="highlight hl-ipython3"><pre><span></span><span class="c1"># Check how the model weights the features </span>
+<span class="n">coef_zip</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">coef_</span>
+<span class="c1"># Print feature coefficients explicitly</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">coef_zip</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">coef</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">feature_names</span><span class="p">,</span> <span class="n">coef_zip</span><span class="p">):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Feature: </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">, Importance (coef): </span><span class="si">{</span><span class="n">coef</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>[1.20870325 1.23835749 0.         0.         0.         0.
+ 0.         0.        ]
+Feature: X_rank_sparse, Importance (coef): 1.2087
+Feature: X_name_semantic_similarity, Importance (coef): 1.2384
+Feature: X_name_lexical_similarity, Importance (coef): 0.0000
+Feature: X_system_similarity, Importance (coef): 0.0000
+Feature: X_component_similarity, Importance (coef): 0.0000
+Feature: X_system_jaccard, Importance (coef): 0.0000
+Feature: X_component_jaccard, Importance (coef): 0.0000
+Feature: X_property_jaccard, Importance (coef): 0.0000
+</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h3 id="5.-Example-Predictions">5. Example Predictions<a class="anchor-link" href="#5.-Example-Predictions">¶</a></h3><ul>
+<li><p><strong>Validation Data Processing</strong>: Loads Excel validation data with sheet names as queries; computes the same feature set used in training (lexical similarities, semantic similarities, and Jaccard scores for various fields)</p>
+</li>
+<li><p><strong>Prediction &amp; Output</strong>: Do example predictions on three queries on a different example dataset and store it under "Results/" folder.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [71]:</div>
+<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="cm-editor cm-s-jupyter">
+<div class="highlight hl-ipython3"><pre><span></span><span class="c1">#Refactor code to prepare data </span>
+<span class="n">xls_val</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">ExcelFile</span><span class="p">(</span><span class="n">val_file_path</span><span class="p">)</span>
+<span class="n">dataframes_val</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="k">for</span> <span class="n">sheet_name</span> <span class="ow">in</span> <span class="n">xls_val</span><span class="o">.</span><span class="n">sheet_names</span><span class="p">:</span>
+    <span class="n">temp_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_excel</span><span class="p">(</span><span class="n">xls_val</span><span class="p">,</span> <span class="n">sheet_name</span><span class="o">=</span><span class="n">sheet_name</span><span class="p">)</span>
+    <span class="n">temp_df</span><span class="p">[</span><span class="s1">'query'</span><span class="p">]</span> <span class="o">=</span> <span class="n">sheet_name</span>  <span class="c1"># Each sheet name is the query text</span>
+    <span class="n">dataframes_val</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">temp_df</span><span class="p">)</span>
+<span class="n">val_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span><span class="n">dataframes_val</span><span class="p">,</span> <span class="n">ignore_index</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="c1"># ------------------------------</span>
+<span class="c1"># Compute Lexical Similarity for 'long_common_name'</span>
+
+<span class="n">corpus</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">([</span><span class="n">val_df</span><span class="p">[</span><span class="s1">'query'</span><span class="p">],</span> <span class="n">val_df</span><span class="p">[</span><span class="s1">'long_common_name'</span><span class="p">]])</span>
+<span class="n">vectorizer</span> <span class="o">=</span> <span class="n">TfidfVectorizer</span><span class="p">()</span>
+<span class="n">vectorizer</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">corpus</span><span class="p">)</span>
+<span class="n">X_query_val</span> <span class="o">=</span> <span class="n">vectorizer</span><span class="o">.</span><span class="n">transform</span><span class="p">(</span><span class="n">val_df</span><span class="p">[</span><span class="s1">'query'</span><span class="p">])</span>
+<span class="n">X_name_tfidf_val</span> <span class="o">=</span> <span class="n">vectorizer</span><span class="o">.</span><span class="n">transform</span><span class="p">(</span><span class="n">val_df</span><span class="p">[</span><span class="s1">'long_common_name'</span><span class="p">])</span>
+<span class="n">cosine_sim_val</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span>
+    <span class="n">cosine_similarity</span><span class="p">(</span><span class="n">X_query_val</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">X_name_tfidf_val</span><span class="p">[</span><span class="n">i</span><span class="p">])[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span> 
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">X_query_val</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+<span class="p">])</span>
+<span class="n">val_df</span><span class="p">[</span><span class="s1">'name_lexical_similarity'</span><span class="p">]</span> <span class="o">=</span> <span class="n">cosine_sim_val</span>
+<span class="n">X_name_lexical_similarity_val</span> <span class="o">=</span> <span class="n">csr_matrix</span><span class="p">(</span><span class="n">val_df</span><span class="p">[[</span><span class="s1">'name_lexical_similarity'</span><span class="p">]]</span><span class="o">.</span><span class="n">values</span><span class="p">)</span>
+
+<span class="c1"># ------------------------------</span>
+<span class="c1"># Compute Lexical Similarity </span>
+
+
+<span class="c1"># Compute Jaccard similarity for each of the  columns, comparing the 'query' to each.</span>
+<span class="n">val_df</span><span class="p">[</span><span class="s1">'component_jaccard'</span><span class="p">]</span> <span class="o">=</span> <span class="n">val_df</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span>
+    <span class="k">lambda</span> <span class="n">row</span><span class="p">:</span> <span class="n">jaccard_similarity</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">'query'</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s1">'component'</span><span class="p">])</span> <span class="k">if</span> <span class="n">pd</span><span class="o">.</span><span class="n">notnull</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">'component'</span><span class="p">])</span> <span class="k">else</span> <span class="mf">0.0</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">val_df</span><span class="p">[</span><span class="s1">'system_jaccard'</span><span class="p">]</span> <span class="o">=</span> <span class="n">val_df</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span>
+    <span class="k">lambda</span> <span class="n">row</span><span class="p">:</span> <span class="n">jaccard_similarity</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">'query'</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s1">'system'</span><span class="p">])</span> <span class="k">if</span> <span class="n">pd</span><span class="o">.</span><span class="n">notnull</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">'system'</span><span class="p">])</span> <span class="k">else</span> <span class="mf">0.0</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">val_df</span><span class="p">[</span><span class="s1">'property_jaccard'</span><span class="p">]</span> <span class="o">=</span> <span class="n">val_df</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span>
+    <span class="k">lambda</span> <span class="n">row</span><span class="p">:</span> <span class="n">jaccard_similarity</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">'query'</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s1">'property'</span><span class="p">])</span> <span class="k">if</span> <span class="n">pd</span><span class="o">.</span><span class="n">notnull</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">'property'</span><span class="p">])</span> <span class="k">else</span> <span class="mf">0.0</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+
+<span class="c1"># Convert the columns to sparse matrices so they can be used as features.</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">scipy.sparse</span><span class="w"> </span><span class="kn">import</span> <span class="n">csr_matrix</span>
+<span class="n">X_component_jaccard_val</span> <span class="o">=</span> <span class="n">csr_matrix</span><span class="p">(</span><span class="n">val_df</span><span class="p">[[</span><span class="s1">'component_jaccard'</span><span class="p">]]</span><span class="o">.</span><span class="n">values</span><span class="p">)</span>
+<span class="n">X_system_jaccard_val</span> <span class="o">=</span> <span class="n">csr_matrix</span><span class="p">(</span><span class="n">val_df</span><span class="p">[[</span><span class="s1">'system_jaccard'</span><span class="p">]]</span><span class="o">.</span><span class="n">values</span><span class="p">)</span>
+<span class="n">X_property_jaccard_val</span> <span class="o">=</span> <span class="n">csr_matrix</span><span class="p">(</span><span class="n">val_df</span><span class="p">[[</span><span class="s1">'property_jaccard'</span><span class="p">]]</span><span class="o">.</span><span class="n">values</span><span class="p">)</span>
+<span class="c1"># ------------------------------</span>
+<span class="c1"># Compute Semantic Similarities</span>
+
+<span class="n">val_df</span><span class="p">[</span><span class="s1">'name_semantic_similarity'</span><span class="p">]</span> <span class="o">=</span> <span class="n">val_df</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span>
+    <span class="k">lambda</span> <span class="n">row</span><span class="p">:</span> <span class="n">calculate_embedding_similarity</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">'query'</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s1">'long_common_name'</span><span class="p">]),</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">val_df</span><span class="p">[</span><span class="s1">'property_semantic_similarity'</span><span class="p">]</span> <span class="o">=</span> <span class="n">val_df</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span>
+    <span class="k">lambda</span> <span class="n">row</span><span class="p">:</span> <span class="n">calculate_embedding_similarity</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">'query'</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s1">'property'</span><span class="p">]),</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">val_df</span><span class="p">[</span><span class="s1">'system_semantic_similarity'</span><span class="p">]</span> <span class="o">=</span> <span class="n">val_df</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span>
+    <span class="k">lambda</span> <span class="n">row</span><span class="p">:</span> <span class="n">calculate_embedding_similarity</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">'query'</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s1">'system'</span><span class="p">]),</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">val_df</span><span class="p">[</span><span class="s1">'component_semantic_similarity'</span><span class="p">]</span> <span class="o">=</span> <span class="n">val_df</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span>
+    <span class="k">lambda</span> <span class="n">row</span><span class="p">:</span> <span class="n">calculate_embedding_similarity</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">'query'</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s1">'component'</span><span class="p">]),</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+
+<span class="n">X_name_semantic_similarity_val</span> <span class="o">=</span> <span class="n">csr_matrix</span><span class="p">(</span><span class="n">val_df</span><span class="p">[[</span><span class="s1">'name_semantic_similarity'</span><span class="p">]]</span><span class="o">.</span><span class="n">values</span><span class="p">)</span>
+<span class="n">X_property_similarity_val</span> <span class="o">=</span> <span class="n">csr_matrix</span><span class="p">(</span><span class="n">val_df</span><span class="p">[[</span><span class="s1">'property_semantic_similarity'</span><span class="p">]]</span><span class="o">.</span><span class="n">values</span><span class="p">)</span>
+<span class="n">X_system_similarity_val</span> <span class="o">=</span> <span class="n">csr_matrix</span><span class="p">(</span><span class="n">val_df</span><span class="p">[[</span><span class="s1">'system_semantic_similarity'</span><span class="p">]]</span><span class="o">.</span><span class="n">values</span><span class="p">)</span>
+<span class="n">X_component_similarity_val</span> <span class="o">=</span> <span class="n">csr_matrix</span><span class="p">(</span><span class="n">val_df</span><span class="p">[[</span><span class="s1">'component_semantic_similarity'</span><span class="p">]]</span><span class="o">.</span><span class="n">values</span><span class="p">)</span>
+
+<span class="c1"># ------------------------------</span>
+<span class="c1"># Process Numerical Feature: 'rank'</span>
+<span class="c1"># Replace zeros (or NaN) with a high rank value as before</span>
+<span class="n">max_rank_val</span> <span class="o">=</span> <span class="n">val_df</span><span class="p">[</span><span class="s1">'rank'</span><span class="p">]</span><span class="o">.</span><span class="n">max</span><span class="p">()</span>
+<span class="n">val_df</span><span class="p">[</span><span class="s1">'rank'</span><span class="p">]</span> <span class="o">=</span> <span class="n">val_df</span><span class="p">[</span><span class="s1">'rank'</span><span class="p">]</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">max_rank_val</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+<span class="c1"># Use the same scaler from training.</span>
+<span class="n">scaler_val</span> <span class="o">=</span> <span class="n">StandardScaler</span><span class="p">()</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">merged_df</span><span class="p">[[</span><span class="s1">'rank'</span><span class="p">]])</span>
+<span class="n">X_rank_val</span> <span class="o">=</span> <span class="n">scaler_val</span><span class="o">.</span><span class="n">transform</span><span class="p">(</span><span class="n">val_df</span><span class="p">[[</span><span class="s1">'rank'</span><span class="p">]])</span>
+<span class="n">X_rank_sparse_val</span> <span class="o">=</span> <span class="n">csr_matrix</span><span class="p">(</span><span class="n">X_rank_val</span><span class="p">)</span>
+
+<span class="c1"># ------------------------------</span>
+<span class="c1"># Combine All Features into One Matrix</span>
+<span class="c1"># Use the same ordering as during training.</span>
+<span class="n">X_val</span> <span class="o">=</span> <span class="n">hstack</span><span class="p">([</span>
+    <span class="n">X_rank_sparse_val</span><span class="p">,</span>
+    <span class="n">X_name_semantic_similarity_val</span><span class="p">,</span> 
+    <span class="n">X_name_lexical_similarity_val</span><span class="p">,</span>
+    <span class="n">X_system_similarity_val</span><span class="p">,</span> 
+    <span class="n">X_component_similarity_val</span><span class="p">,</span>
+    <span class="n">X_system_jaccard_val</span><span class="p">,</span>
+    <span class="n">X_component_jaccard_val</span><span class="p">,</span>
+    <span class="n">X_property_jaccard_val</span>
+<span class="p">])</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [72]:</div>
+<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="cm-editor cm-s-jupyter">
+<div class="highlight hl-ipython3"><pre><span></span><span class="n">val_df</span><span class="p">[</span><span class="s1">'qid_numeric'</span><span class="p">]</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">factorize</span><span class="p">(</span><span class="n">val_df</span><span class="p">[</span><span class="s1">'query'</span><span class="p">])[</span><span class="mi">0</span><span class="p">]</span>
+<span class="n">qid_val</span> <span class="o">=</span> <span class="n">val_df</span><span class="p">[</span><span class="s1">'qid_numeric'</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+
+<span class="c1"># Predict Using the Fitted AdaRank Model</span>
+<span class="c1"># Assume your AdaRank model has already been trained and is available as 'model'</span>
+<span class="n">y_val_pred</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_val</span><span class="p">,</span> <span class="n">qid_val</span><span class="p">)</span>
+
+<span class="c1"># Add the predictions to the DataFrame for inspection.</span>
+<span class="n">val_df</span><span class="p">[</span><span class="s1">'y_pred'</span><span class="p">]</span> <span class="o">=</span> <span class="n">y_val_pred</span>
+<span class="c1"># Print Example Predictions Grouped by Query</span>
+<span class="sd">""" print("Validation Predictions:")</span>
+<span class="sd">for query, group in val_df.groupby('query'):</span>
+<span class="sd">    print(f"\nQuery: {query}")</span>
+<span class="sd">    # Adjust column names as needed; here we print the document 'long_common_name' and its prediction.</span>
+<span class="sd">    print(group[['long_common_name', 'y_pred']])  """</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child jp-OutputArea-executeResult">
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[72]:</div>
+<div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
+<pre>' print("Validation Predictions:")\nfor query, group in val_df.groupby(\'query\'):\n    print(f"\nQuery: {query}")\n    # Adjust column names as needed; here we print the document \'long_common_name\' and its prediction.\n    print(group[[\'long_common_name\', \'y_pred\']])  '</pre>
+</div>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [73]:</div>
+<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="cm-editor cm-s-jupyter">
+<div class="highlight hl-ipython3"><pre><span></span><span class="n">val_df</span><span class="p">[</span><span class="s1">'qid_numeric'</span><span class="p">]</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">factorize</span><span class="p">(</span><span class="n">val_df</span><span class="p">[</span><span class="s1">'query'</span><span class="p">])[</span><span class="mi">0</span><span class="p">]</span>
+<span class="n">qid_val</span> <span class="o">=</span> <span class="n">val_df</span><span class="p">[</span><span class="s1">'qid_numeric'</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+
+<span class="c1"># Predict Using the Fitted AdaRank Model</span>
+<span class="c1"># Assume your AdaRank model has already been trained and is available as 'model'</span>
+<span class="n">y_val_pred</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X_val</span><span class="p">,</span> <span class="n">qid_val</span><span class="p">)</span>
+
+<span class="c1"># Add the predictions to the DataFrame for inspection.</span>
+<span class="n">val_df</span><span class="p">[</span><span class="s1">'y_pred'</span><span class="p">]</span> <span class="o">=</span> <span class="n">y_val_pred</span>
+<span class="c1"># Print Example Predictions Grouped by Query</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"Validation Predictions:"</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">query</span><span class="p">,</span> <span class="n">group</span> <span class="ow">in</span> <span class="n">val_df</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s1">'query'</span><span class="p">):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="se">\n</span><span class="s2">Query: </span><span class="si">{</span><span class="n">query</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+    <span class="c1"># Adjust column names as needed; here we print the document 'long_common_name' and its prediction.</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">group</span><span class="p">[[</span><span class="s1">'long_common_name'</span><span class="p">,</span> <span class="s1">'y_pred'</span><span class="p">]])</span> 
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Validation Predictions:
+
+Query: Bacteria Flue
+                                       long_common_name    y_pred
+1000  11-Deoxycortisol [Mass/volume] in Serum or Plasma  0.378464
+1001  Hemoglobin.gastrointestinal [Presence] in Vomitus  0.679689
+1002          Busulfan [Mass/volume] in Serum or Plasma  0.805167
+1003  Fetal Trisomy 13 risk [Likelihood] based on Pl...  1.599803
+1004  Cholesterol esters/Cholesterol.total in Serum ... -0.776623
+...                                                 ...       ...
+1495  Helicobacter pylori Ab [Presence] in Serum by ...  1.841552
+1496  Decanoylcarnitine (C10) [Moles/volume] in Seru... -0.253396
+1497  Prothrombin time (PT) in Control Platelet poor...  0.434744
+1498  Microalbumin [Mass/time] in Urine collected fo...  0.841374
+1499    Bordetella pertussis IgG Ab [Presence] in Serum  0.700706
+
+[500 rows x 2 columns]
+
+Query: Cholesterol in Blood
+                                      long_common_name    y_pred
+500  11-Deoxycortisol [Mass/volume] in Serum or Plasma  0.668452
+501  Hemoglobin.gastrointestinal [Presence] in Vomitus  0.823037
+502          Busulfan [Mass/volume] in Serum or Plasma  1.000234
+503  Fetal Trisomy 13 risk [Likelihood] based on Pl...  1.714835
+504  Cholesterol esters/Cholesterol.total in Serum ... -0.171250
+..                                                 ...       ...
+995  Helicobacter pylori Ab [Presence] in Serum by ...  1.886297
+996  Decanoylcarnitine (C10) [Moles/volume] in Seru...  0.048539
+997  Prothrombin time (PT) in Control Platelet poor...  0.669631
+998  Microalbumin [Mass/time] in Urine collected fo...  1.034135
+999    Bordetella pertussis IgG Ab [Presence] in Serum  0.782561
+
+[500 rows x 2 columns]
+
+Query: Creatinine Urine or Blood
+                                      long_common_name    y_pred
+0    11-Deoxycortisol [Mass/volume] in Serum or Plasma  0.598253
+1    Hemoglobin.gastrointestinal [Presence] in Vomitus  0.832570
+2            Busulfan [Mass/volume] in Serum or Plasma  1.069418
+3    Fetal Trisomy 13 risk [Likelihood] based on Pl...  1.687261
+4    Cholesterol esters/Cholesterol.total in Serum ... -0.485273
+..                                                 ...       ...
+495  Helicobacter pylori Ab [Presence] in Serum by ...  1.855611
+496  Decanoylcarnitine (C10) [Moles/volume] in Seru...  0.064030
+497  Prothrombin time (PT) in Control Platelet poor...  0.680079
+498  Microalbumin [Mass/time] in Urine collected fo...  1.233286
+499    Bordetella pertussis IgG Ab [Presence] in Serum  0.813297
+
+[500 rows x 2 columns]
+</pre>
+</div>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [74]:</div>
+<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="cm-editor cm-s-jupyter">
+<div class="highlight hl-ipython3"><pre><span></span><span class="c1"># Function to assign ranking within each query group</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">assign_ranking</span><span class="p">(</span><span class="n">group</span><span class="p">):</span>
+    <span class="n">group</span> <span class="o">=</span> <span class="n">group</span><span class="o">.</span><span class="n">sort_values</span><span class="p">(</span><span class="n">by</span><span class="o">=</span><span class="s1">'y_pred'</span><span class="p">,</span> <span class="n">ascending</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="n">group</span><span class="p">[</span><span class="s1">'AdaRank Ranking'</span><span class="p">]</span> <span class="o">=</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">group</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">group</span>
+
+<span class="c1"># Create a dictionary where each key is a query and value is the ranked DataFrame for that query</span>
+<span class="n">query_groups</span> <span class="o">=</span> <span class="p">{</span><span class="n">query</span><span class="p">:</span> <span class="n">assign_ranking</span><span class="p">(</span><span class="n">group</span><span class="p">)</span> <span class="k">for</span> <span class="n">query</span><span class="p">,</span> <span class="n">group</span> <span class="ow">in</span> <span class="n">val_df</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s1">'query'</span><span class="p">)}</span>
+
+<span class="c1"># Write each query's results to a separate sheet in an Excel file</span>
+<span class="n">output_file</span> <span class="o">=</span> <span class="s1">'Results/validation_results_by_query.xlsx'</span>
+<span class="k">with</span> <span class="n">pd</span><span class="o">.</span><span class="n">ExcelWriter</span><span class="p">(</span><span class="n">output_file</span><span class="p">)</span> <span class="k">as</span> <span class="n">writer</span><span class="p">:</span>
+    <span class="k">for</span> <span class="n">query</span><span class="p">,</span> <span class="n">df_group</span> <span class="ow">in</span> <span class="n">query_groups</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="c1"># Excel sheet names can have a maximum of 31 characters, so we truncate if necessary</span>
+        <span class="n">sheet_name</span> <span class="o">=</span> <span class="n">query</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">query</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="mi">31</span> <span class="k">else</span> <span class="n">query</span><span class="p">[:</span><span class="mi">31</span><span class="p">]</span>
+        <span class="n">df_group</span><span class="o">.</span><span class="n">to_excel</span><span class="p">(</span><span class="n">writer</span><span class="p">,</span> <span class="n">sheet_name</span><span class="o">=</span><span class="n">sheet_name</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Validation results saved to </span><span class="si">{</span><span class="n">output_file</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Validation results saved to Results/validation_results_by_query.xlsx
 </pre>
 </div>
 </div>
