@@ -1,16 +1,15 @@
-# CHANGES MADE: 
-# 1. Added EPS during alpha calculation to avoid division by zero
-# 2. Deactivate prints 
-# 3. Add get_coef function to return the coefficients of the model
-# 4. Explicit regularization using lambda param to enforce feature diversity during model fit -> Prohibits AdaRank to only select most important feature
-# 5. Radonmize Weak Ranker Iteration order during fit to avoid feature being overmephazised due to order if similar predition power 
-
 #Copyright (c) 2017 Ruey-Cheng Chen
-#Copied from repository git@github.com:rueycheng/AdaRank.git
 
-#Copyright (c) 2017 Ruey-Cheng Chen
-#Copied from repository git@github.com:rueycheng/AdaRank.git
-"""
+""" This is a modified version of the AdaRank algorithm. The original code was copied from the repository git@github.com:rueycheng/AdaRank.git.
+
+ CHANGES MADE: 
+1. Added EPS during alpha calculation to avoid division by zero
+2. Added prints 
+3. Add get_coef function to return the coefficients of the model
+4. Explicit regularization using lambda param to enforce feature diversity during model fit -> Prohibits AdaRank to only select most important feature
+5. Radonmize Weak Ranker Iteration order during fit to avoid feature being overmephazised due to order if similar predition power 
+6. Add a max alpha to avoid overfitting
+
 AdaRank algorithm
 """
 from __future__ import print_function, division
@@ -73,6 +72,7 @@ class AdaRankv2(sklearn.base.BaseEstimator):
 
             best_weighted_average = -np.inf
             best_weak_ranker = None
+            #CHANGED CODE: Rnadomize the order of weak ranker iteration
             # Create a list of all feature indices
             candidate_fids = list(range(len(weak_ranker_score)))
             # Randomize the order of candidates
@@ -80,9 +80,9 @@ class AdaRankv2(sklearn.base.BaseEstimator):
 
             for fid in candidate_fids:
                 score = weak_ranker_score[fid]
-                # Apply a penalty if this feature was used before
-                #penalty = 0.5 if fid in used_fids else 1.0
-                #weighted_average = penalty * np.dot(weights, score)
+                # CHANGED CODE: Apply a penalty if this feature was used before
+                #   penalty = 0.5 if fid in used_fids else 1.0
+                #   weighted_average = penalty * np.dot(weights, score)
                 weighted_average = np.dot(weights, score)
                 if weighted_average > best_weighted_average:
                     best_weak_ranker = {'fid': fid, 'score': score}
@@ -92,11 +92,10 @@ class AdaRankv2(sklearn.base.BaseEstimator):
             if best_weak_ranker is None:
                 break
 
-            #CHANGED CODE: 
-            # Add small epsilon to avoid division by zero
+            #CHANGED CODE: Add small epsilon to avoid division by zero
             EPS = 1e-10
-            #Add lambda to enforce regulatrization during on the feature selection
-            lambda_reg = 0.01 # hyperparam was manually tuned
+            #CHANGED CODE: Add lambda to enforce regulatrization during on the feature selection
+            lambda_reg = 0.1 # hyperparam was manually tuned
 
             h = best_weak_ranker
             # Compute numerator and denominator with regularization added
