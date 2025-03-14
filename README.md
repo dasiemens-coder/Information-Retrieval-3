@@ -1,4 +1,4 @@
-# Information Retrieval #3 - LOINC Retrieval
+# Information Retrieval #3 - ML Ranking LOINC Retrieval
 
 ### Authors 
 - Davis Siemens
